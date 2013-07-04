@@ -1,0 +1,28 @@
+Simple authenticating proxy for AWS S3
+======================================
+
+This proxy allows any application supporting HTTP proxies to access files in a
+private S3 bucket. The authorization headers are only sent if the proxy detects
+a S3 URL (of the form *.s3.amazonaws.com/*).
+
+Build
+=====
+You'll need Go 1.1 to compile s3proxy. Note that the Go tools are only needed
+for compiling s3proxy, the resulting binary does not depend on any external
+libraries.
+
+- Export GOPATH to the root directory of s3proxy
+- Run go install s3proxy
+
+You should now have a s3proxy binary in bin/s3proxy
+
+Setup
+=====
+- Copy default.conf.dist to a file somewhere and edit the values inside
+- Start the proxy, passing the path to the config file as the only command line
+  parameter
+
+Future
+======
+- Support multiple bucket configurations (one API key per bucket)
+- Support transparent client side encryption of data
