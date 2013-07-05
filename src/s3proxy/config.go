@@ -1,16 +1,24 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 )
 
-type Config struct {
-	BindAddress     string
+type ServerConfig struct {
+	Address string
+	Port    uint16
+}
+
+type BucketConfig struct {
 	AccessKeyId     string
 	SecretAccessKey string
+}
+
+type Config struct {
+	Server  *ServerConfig
+	Buckets map[string]*BucketConfig
 }
 
 func parseConfig(filename string) (*Config, error) {
@@ -22,58 +30,33 @@ func parseConfig(filename string) (*Config, error) {
 
 	defer fd.Close()
 
-	scanner := bufio.NewScanner(fd)
-
-	currentLine := 0
+	decoder := json.NewDecoder(fd)
 
 	c := &Config{}
 
-	values := make(map[string]string)
+	err = decoder.Decode(c)
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		currentLine++
-
-		if strings.HasPrefix(line, "#") || line == "" {
-			continue
-		}
-
-		tokens := strings.SplitN(line, "=", 2)
-
-		if len(tokens) != 2 {
-			return nil, fmt.Errorf("Invalid configuration directive at line %d", currentLine)
-		}
-
-		key := strings.TrimSpace(tokens[0])
-		value := strings.TrimSpace(tokens[1])
-
-		if key == "" || value == "" {
-			return nil, fmt.Errorf("Empty key or value at line %d", currentLine)
-		}
-
-		values[key] = value
-
-		switch key {
-		case "BindAddress":
-			c.BindAddress = value
-		case "AccessKeyId":
-			c.AccessKeyId = value
-		case "SecretAccessKey":
-			c.SecretAccessKey = value
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	requiredKeys := []string{"BindAddress", "AccessKeyId", "SecretAccessKey"}
-
-	for _, k := range requiredKeys {
-		if _, ok := values[k]; !ok {
-			return nil, fmt.Errorf("Missing configuration parameter: %s", k)
-		}
+	if c.Server.Address == "" {
+		return nil, fmt.Errorf("Missing config parameter Server.Address")
 	}
 
-	c.BindAddress = values["BindAddress"]
-	c.AccessKeyId = values["AccessKeyId"]
-	c.SecretAccessKey = values["SecretAccessKey"]
+	if c.Server.Port <= 0 {
+		return nil, fmt.Errorf("Missing or invalid config parameter Server.Port")
+	}
+
+	for name, config := range c.Buckets {
+		if config.AccessKeyId == "" {
+			return nil, fmt.Errorf("Missing config parameter AccessKeyId for bucket '%s'", name)
+		}
+
+		if config.SecretAccessKey == "" {
+			return nil, fmt.Errorf("Missing config parameter SecretAccessKey for bucket '%s'", name)
+		}
+	}
 
 	return c, nil
 }

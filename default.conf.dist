@@ -1,6 +1,0 @@
-# Address on which to bind
-# Format: address:port
-BindAddress=127.0.0.1:18000
-# AWS API keys
-AccessKeyId=
-SecretAccessKey=

@@ -32,17 +32,37 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 		return
 	}
 
+	var bucketName string
+	// Whether the URL was using bucket.s3.amazonaws.com instead of s3.amazonaws.com/bucket/
+	var bucketVirtualHost = false
+
+	if len(r.Host) > len(AwsDomain) {
+		bucketName = r.Host[0 : len(r.Host)-len(AwsDomain)-1]
+		bucketVirtualHost = true
+	} else {
+		tokens := strings.Split(r.URL.RequestURI(), "/")
+
+		if len(tokens) > 0 {
+			bucketName = tokens[0]
+		}
+	}
+
+	bucketConfig, bucketExists := h.config.Buckets[bucketName]
+
+	if !bucketExists {
+		return
+	}
+
 	dateStr := time.Now().UTC().Format(time.RFC1123Z)
 	r.Header.Set("Date", dateStr)
 
 	canonicalizedResource := bytes.NewBuffer(nil)
 
-	if len(r.Host) > len(AwsDomain) {
-		canonicalizedResource.WriteString("/")
-		canonicalizedResource.WriteString(r.Host[0 : len(r.Host)-len(AwsDomain)-1])
+	if bucketVirtualHost {
+		canonicalizedResource.WriteString("/" + bucketName)
 	}
 
-	canonicalizedResource.WriteString(r.URL.RequestURI())
+	canonicalizedResource.WriteString(r.URL.Path)
 
 	canonicalizedAmzHeaders := bytes.NewBuffer(nil)
 
@@ -75,7 +95,7 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 	buf.WriteString(canonicalizedAmzHeaders.String())
 	buf.WriteString(canonicalizedResource.String())
 
-	signature := hmac.New(sha1.New, ([]byte)(h.config.SecretAccessKey))
+	signature := hmac.New(sha1.New, ([]byte)(bucketConfig.SecretAccessKey))
 	signature.Write(buf.Bytes())
 
 	signature64 := bytes.NewBuffer(nil)
@@ -84,7 +104,7 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 	b64encoder.Write(signature.Sum(nil))
 	b64encoder.Close()
 
-	r.Header.Set("Authorization", fmt.Sprintf("AWS %s:%s", h.config.AccessKeyId, signature64.String()))
+	r.Header.Set("Authorization", fmt.Sprintf("AWS %s:%s", bucketConfig.AccessKeyId, signature64.String()))
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -139,5 +159,6 @@ func main() {
 		&http.Client{},
 	}
 
-	http.ListenAndServe(config.BindAddress, handler)
+	listenAddress := fmt.Sprintf("%s:%d", config.Server.Address, config.Server.Port)
+	http.ListenAndServe(listenAddress, handler)
 }
