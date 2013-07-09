@@ -59,8 +59,12 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 		return
 	}
 
-	dateStr := time.Now().UTC().Format(time.RFC1123Z)
-	r.Header.Set("Date", dateStr)
+	dateStr := r.Header.Get("Date")
+
+	if dateStr == "" {
+		dateStr = time.Now().UTC().Format(time.RFC1123Z)
+		r.Header.Set("Date", dateStr)
+	}
 
 	canonicalizedResource := bytes.NewBuffer(nil)
 
