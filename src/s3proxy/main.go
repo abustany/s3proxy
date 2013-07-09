@@ -40,10 +40,16 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 		bucketName = r.Host[0 : len(r.Host)-len(AwsDomain)-1]
 		bucketVirtualHost = true
 	} else {
-		tokens := strings.Split(r.URL.RequestURI(), "/")
+		tokens := strings.Split(r.URL.Path, "/")
 
-		if len(tokens) > 0 {
-			bucketName = tokens[0]
+		// Split produces empty tokens which we are not interested in
+		for _, t := range tokens {
+			if t == "" {
+				continue
+			}
+
+			bucketName = t
+			break
 		}
 	}
 
