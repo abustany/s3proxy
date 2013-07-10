@@ -19,17 +19,36 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "HTTP proxy that authenticates S3 requests\n")
 }
 
-type ProxyHandler struct {
-	config *Config
-	client *http.Client
+type Credentials struct {
+	AccessKeyId     string
+	SecretAccessKey string
+	Token           string
+	Expiration      time.Time
 }
 
-func (h *ProxyHandler) SignRequest(r *http.Request) {
+type ProxyHandler struct {
+	config          *Config
+	client          *http.Client
+	credentialCache *CredentialCache
+}
+
+func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentials, error) {
+	if c.IAMRole == "" {
+		return &Credentials{
+			AccessKeyId:     c.AccessKeyId,
+			SecretAccessKey: c.SecretAccessKey,
+		}, nil
+	}
+
+	return h.credentialCache.GetRoleCredentials(c.IAMRole)
+}
+
+func (h *ProxyHandler) SignRequest(r *http.Request) error {
 	// See http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html#ConstructingTheAuthenticationHeader
 	const AwsDomain = "s3.amazonaws.com"
 
 	if !strings.HasSuffix(r.Host, AwsDomain) {
-		return
+		return nil
 	}
 
 	var bucketName string
@@ -56,7 +75,13 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 	bucketConfig, bucketExists := h.config.Buckets[bucketName]
 
 	if !bucketExists {
-		return
+		return nil
+	}
+
+	credentials, err := h.GetBucketSecurityCredentials(bucketConfig)
+
+	if err != nil {
+		return err
 	}
 
 	dateStr := r.Header.Get("Date")
@@ -64,6 +89,10 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 	if dateStr == "" {
 		dateStr = time.Now().UTC().Format(time.RFC1123Z)
 		r.Header.Set("Date", dateStr)
+	}
+
+	if credentials.Token != "" {
+		r.Header.Add("x-amz-security-token", credentials.Token)
 	}
 
 	canonicalizedResource := bytes.NewBuffer(nil)
@@ -86,6 +115,7 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 		canonicalizedAmzHeaders.WriteString(k)
 		canonicalizedAmzHeaders.WriteString(":")
 		canonicalizedAmzHeaders.WriteString(strings.Join(vs, ","))
+		canonicalizedAmzHeaders.WriteString("\n")
 	}
 
 	buf := bytes.NewBuffer(nil)
@@ -105,7 +135,7 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 	buf.WriteString(canonicalizedAmzHeaders.String())
 	buf.WriteString(canonicalizedResource.String())
 
-	signature := hmac.New(sha1.New, ([]byte)(bucketConfig.SecretAccessKey))
+	signature := hmac.New(sha1.New, ([]byte)(credentials.SecretAccessKey))
 	signature.Write(buf.Bytes())
 
 	signature64 := bytes.NewBuffer(nil)
@@ -114,7 +144,9 @@ func (h *ProxyHandler) SignRequest(r *http.Request) {
 	b64encoder.Write(signature.Sum(nil))
 	b64encoder.Close()
 
-	r.Header.Set("Authorization", fmt.Sprintf("AWS %s:%s", bucketConfig.AccessKeyId, signature64.String()))
+	r.Header.Set("Authorization", fmt.Sprintf("AWS %s:%s", credentials.AccessKeyId, signature64.String()))
+
+	return nil
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +159,13 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.URL.Host = r.Host
 	r.RequestURI = ""
 
-	h.SignRequest(r)
+	err := h.SignRequest(r)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
+		return
+	}
 
 	response, err := h.client.Do(r)
 
@@ -149,6 +187,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, response.Body)
 }
 
+func NewProxyHandler(config *Config) *ProxyHandler {
+	return &ProxyHandler{
+		config,
+		&http.Client{},
+		NewCredentialCache(),
+	}
+}
+
 func main() {
 	flag.Parse()
 
@@ -164,10 +210,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := &ProxyHandler{
-		config,
-		&http.Client{},
-	}
+	handler := NewProxyHandler(config)
 
 	listenAddress := fmt.Sprintf("%s:%d", config.Server.Address, config.Server.Port)
 	http.ListenAndServe(listenAddress, handler)

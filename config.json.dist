@@ -8,6 +8,9 @@
 		"AWS bucket name": {
 			"AccessKeyId": "",
 			"SecretAccessKey": ""
+		},
+		"AWS bucket name using IAM roles": {
+			"IAMRole": "RoleName"
 		}
 	}
 }
