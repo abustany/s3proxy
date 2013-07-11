@@ -5,6 +5,10 @@ This proxy allows any application supporting HTTP proxies to access files in a
 private S3 bucket. The authorization headers are only sent if the proxy detects
 a S3 URL (of the form *.s3.amazonaws.com/*).
 
+The proxy supports fetching tokens from an IAM role, so you don't have to store
+the keys on your instance directly. You can also configure different buckets
+with different credentials.
+
 Build
 =====
 You'll need Go 1.1 to compile s3proxy. Note that the Go tools are only needed
@@ -18,11 +22,10 @@ You should now have a s3proxy binary in bin/s3proxy
 
 Setup
 =====
-- Copy default.conf.dist to a file somewhere and edit the values inside
+- Copy config.json.dist to a file somewhere and edit the values inside
 - Start the proxy, passing the path to the config file as the only command line
   parameter
 
 Future
 ======
-- Support multiple bucket configurations (one API key per bucket)
 - Support transparent client side encryption of data
