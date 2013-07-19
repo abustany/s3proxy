@@ -43,12 +43,11 @@ func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentia
 	return h.credentialCache.GetRoleCredentials(c.IAMRole)
 }
 
-func (h *ProxyHandler) SignRequest(r *http.Request) error {
-	// See http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html#ConstructingTheAuthenticationHeader
+func (h *ProxyHandler) GetBucketConfig(r *http.Request) (string, *BucketConfig, bool) {
 	const AwsDomain = "s3.amazonaws.com"
 
 	if !strings.HasSuffix(r.Host, AwsDomain) {
-		return nil
+		return "", nil, false
 	}
 
 	var bucketName string
@@ -72,9 +71,14 @@ func (h *ProxyHandler) SignRequest(r *http.Request) error {
 		}
 	}
 
-	bucketConfig, bucketExists := h.config.Buckets[bucketName]
+	return bucketName, h.config.Buckets[bucketName], bucketVirtualHost
+}
 
-	if !bucketExists {
+func (h *ProxyHandler) SignRequest(r *http.Request) error {
+	// See http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html#ConstructingTheAuthenticationHeader
+	bucketName, bucketConfig, bucketVirtualHost := h.GetBucketConfig(r)
+
+	if bucketConfig == nil {
 		return nil
 	}
 
