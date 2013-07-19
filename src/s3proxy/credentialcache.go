@@ -1,23 +1,23 @@
 package main
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 )
 
 type CredentialCache struct {
-	client *http.Client
-	cache  map[string]*Credentials
+	client     *http.Client
+	cache      map[string]*Credentials
 	cacheMutex sync.Mutex
 }
 
 func NewCredentialCache() *CredentialCache {
 	return &CredentialCache{
 		client: &http.Client{},
-		cache: make(map[string]*Credentials),
+		cache:  make(map[string]*Credentials),
 	}
 }
 
