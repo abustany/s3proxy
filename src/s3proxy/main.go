@@ -150,11 +150,6 @@ func (h *ProxyHandler) SignRequest(r *http.Request) error {
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.URL.Scheme = "http"
 	r.URL.Host = r.Host
 	r.RequestURI = ""
