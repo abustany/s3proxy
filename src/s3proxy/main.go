@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -84,6 +85,45 @@ func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
 	}
 }
 
+func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *http.Request, info *BucketInfo) error {
+	if info == nil || info.Config == nil || info.Config.EncryptionKey == "" || r.Method != "PUT" {
+		return nil
+	}
+
+	encryptedInput, extralen, err := SetupWriteEncryption(r.Body, info)
+
+	if err != nil {
+		return err
+	}
+
+	innerRequest.Body = encryptedInput
+
+	if length := innerRequest.ContentLength; length != -1 {
+		innerRequest.ContentLength += extralen
+		innerRequest.Header.Set("Content-Length", strconv.FormatInt(innerRequest.ContentLength, 10))
+	}
+
+	return nil
+}
+
+func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse *http.Response, info *BucketInfo) (io.ReadCloser, error) {
+	if info == nil || info.Config == nil || info.Config.EncryptionKey == "" || r.Method != "GET" {
+		return innerResponse.Body, nil
+	}
+
+	decryptedReader, minuslen, err := SetupReadEncryption(innerResponse.Body, info)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if length := innerResponse.ContentLength; length != -1 {
+		innerResponse.ContentLength -= minuslen
+		innerResponse.Header.Set("Content-Length", strconv.FormatInt(innerResponse.ContentLength, 10))
+	}
+
+	return decryptedReader, nil
+}
 
 func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 	// See http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html#ConstructingTheAuthenticationHeader
@@ -194,6 +234,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = h.PreRequestEncryptionHook(r, innerRequest, info)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Error while setting up encryption: %s\n\nGreetings, the S3Proxy\n", err)
+		return
+	}
+
 	innerResponse, err := h.client.Do(innerRequest)
 
 	if err != nil {
@@ -204,6 +252,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	defer innerResponse.Body.Close()
 
+	responseReader, err := h.PostRequestEncryptionHook(r, innerResponse, info)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Error while setting up decryption: %s\n\nGreetings, the S3Proxy\n", err)
+		return
+	}
+
 	for k, vs := range innerResponse.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
@@ -211,7 +267,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(innerResponse.StatusCode)
-	io.Copy(w, innerResponse.Body)
+	io.Copy(w, responseReader)
 }
 
 func NewProxyHandler(config *Config) *ProxyHandler {

@@ -251,16 +251,19 @@ func TestSignature(t *testing.T) {
 				"AccessKey",
 				"SecretKey",
 				"",
+				"",
 			},
 			"testbucket2": {
 				"AccessKey",
 				"SecretKey2",
+				"",
 				"",
 			},
 			"testbucket3": {
 				"",
 				"",
 				"testrole",
+				"",
 			},
 		},
 	}

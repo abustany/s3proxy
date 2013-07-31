@@ -15,6 +15,7 @@ type BucketConfig struct {
 	AccessKeyId     string
 	SecretAccessKey string
 	IAMRole         string
+	EncryptionKey   string
 }
 
 type Config struct {
