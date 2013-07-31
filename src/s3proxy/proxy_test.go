@@ -146,7 +146,7 @@ func compareCreds(t *testing.T, creds *Credentials, expected *Credentials) bool 
 func SetupFakeIAMServer() *IAMServer {
 	server := NewIAMServer()
 
-	// Overrides definition in main.go
+	// Overrides definition in credentialcache.go
 	AmzIAMEndpoint = fmt.Sprintf("http://127.0.0.1:%d/latest/meta-data/iam/security-credentials/", server.Port)
 
 	testRoleCreds := &Credentials{
