@@ -87,6 +87,10 @@ func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
 
 func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 	// See http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html#ConstructingTheAuthenticationHeader
+
+	if info == nil || info.Config == nil {
+		return nil
+	}
 	credentials, err := h.GetBucketSecurityCredentials(info.Config)
 
 	if err != nil {
@@ -182,14 +186,12 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	innerRequest.URL.Scheme = "http"
 	innerRequest.URL.Host = r.Host
 
-	if info != nil && info.Config != nil {
-		err := h.SignRequest(innerRequest, info)
+	err := h.SignRequest(innerRequest, info)
 
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
-			return
-		}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
+		return
 	}
 
 	innerResponse, err := h.client.Do(innerRequest)
