@@ -331,7 +331,8 @@ func TestSignature(t *testing.T) {
 			request.Header.Add("Authorization", "XXX")
 		}
 
-		err := h.SignRequest(request)
+		info := h.GetBucketInfo(request)
+		err := h.SignRequest(request, info)
 
 		if err != nil {
 			t.Errorf("Unexpected error while signing for test case '%s': %s", d.Name, err)

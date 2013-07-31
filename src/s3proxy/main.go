@@ -26,6 +26,12 @@ type Credentials struct {
 	Expiration      time.Time
 }
 
+type BucketInfo struct {
+	Name        string
+	VirtualHost bool
+	Config      *BucketConfig
+}
+
 type ProxyHandler struct {
 	config          *Config
 	client          *http.Client
@@ -43,11 +49,11 @@ func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentia
 	return h.credentialCache.GetRoleCredentials(c.IAMRole)
 }
 
-func (h *ProxyHandler) GetBucketConfig(r *http.Request) (string, *BucketConfig, bool) {
+func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
 	const AwsDomain = "s3.amazonaws.com"
 
 	if !strings.HasSuffix(r.Host, AwsDomain) {
-		return "", nil, false
+		return nil
 	}
 
 	var bucketName string
@@ -71,18 +77,17 @@ func (h *ProxyHandler) GetBucketConfig(r *http.Request) (string, *BucketConfig, 
 		}
 	}
 
-	return bucketName, h.config.Buckets[bucketName], bucketVirtualHost
+	return &BucketInfo{
+		Name:        bucketName,
+		VirtualHost: bucketVirtualHost,
+		Config:      h.config.Buckets[bucketName],
+	}
 }
 
-func (h *ProxyHandler) SignRequest(r *http.Request) error {
+
+func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 	// See http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html#ConstructingTheAuthenticationHeader
-	bucketName, bucketConfig, bucketVirtualHost := h.GetBucketConfig(r)
-
-	if bucketConfig == nil {
-		return nil
-	}
-
-	credentials, err := h.GetBucketSecurityCredentials(bucketConfig)
+	credentials, err := h.GetBucketSecurityCredentials(info.Config)
 
 	if err != nil {
 		return err
@@ -101,8 +106,8 @@ func (h *ProxyHandler) SignRequest(r *http.Request) error {
 
 	canonicalizedResource := bytes.NewBuffer(nil)
 
-	if bucketVirtualHost {
-		canonicalizedResource.WriteString("/" + bucketName)
+	if info.VirtualHost {
+		canonicalizedResource.WriteString("/" + info.Name)
 	}
 
 	canonicalizedResource.WriteString(r.URL.Path)
@@ -154,19 +159,40 @@ func (h *ProxyHandler) SignRequest(r *http.Request) error {
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	r.URL.Scheme = "http"
-	r.URL.Host = r.Host
-	r.RequestURI = ""
+	info := h.GetBucketInfo(r)
 
-	err := h.SignRequest(r)
-
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
-		return
+	innerRequest := &http.Request{
+		Method:           r.Method,
+		URL:              r.URL,
+		Proto:            r.Proto,
+		ProtoMajor:       r.ProtoMajor,
+		ProtoMinor:       r.ProtoMinor,
+		Header:           r.Header,
+		Body:             r.Body,
+		ContentLength:    r.ContentLength,
+		TransferEncoding: r.TransferEncoding,
+		Close:            r.Close,
+		Host:             r.Host,
+		Form:             r.Form,
+		PostForm:         r.PostForm,
+		MultipartForm:    r.MultipartForm,
+		Trailer:          r.Trailer,
 	}
 
-	response, err := h.client.Do(r)
+	innerRequest.URL.Scheme = "http"
+	innerRequest.URL.Host = r.Host
+
+	if info != nil && info.Config != nil {
+		err := h.SignRequest(innerRequest, info)
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
+			return
+		}
+	}
+
+	innerResponse, err := h.client.Do(innerRequest)
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -174,16 +200,16 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer response.Body.Close()
+	defer innerResponse.Body.Close()
 
-	for k, vs := range response.Header {
+	for k, vs := range innerResponse.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
 	}
 
-	w.WriteHeader(response.StatusCode)
-	io.Copy(w, response.Body)
+	w.WriteHeader(innerResponse.StatusCode)
+	io.Copy(w, innerResponse.Body)
 }
 
 func NewProxyHandler(config *Config) *ProxyHandler {
