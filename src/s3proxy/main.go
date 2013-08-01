@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -163,16 +164,22 @@ func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 
 	canonicalizedAmzHeaders := bytes.NewBuffer(nil)
 
-	for k, vs := range r.Header {
-		k = strings.ToLower(k)
+	amzHeaders := []string{}
 
-		if !strings.HasPrefix(k, "x-amz-") {
+	for k, _ := range r.Header {
+		if !strings.HasPrefix(strings.ToLower(k), "x-amz-") {
 			continue
 		}
 
-		canonicalizedAmzHeaders.WriteString(k)
+		amzHeaders = append(amzHeaders, k)
+	}
+
+	sort.Strings(amzHeaders)
+
+	for _, k := range amzHeaders {
+		canonicalizedAmzHeaders.WriteString(strings.ToLower(k))
 		canonicalizedAmzHeaders.WriteString(":")
-		canonicalizedAmzHeaders.WriteString(strings.Join(vs, ","))
+		canonicalizedAmzHeaders.WriteString(strings.Join(r.Header[k], ","))
 		canonicalizedAmzHeaders.WriteString("\n")
 	}
 
