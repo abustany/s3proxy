@@ -139,7 +139,7 @@ func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 
 	dateStr := r.Header.Get("Date")
 
-	if dateStr == "" {
+	if dateStr == "" && r.Header.Get("x-amz-date") == "" {
 		dateStr = time.Now().UTC().Format(time.RFC1123Z)
 		r.Header.Set("Date", dateStr)
 	}
