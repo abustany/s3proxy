@@ -111,6 +111,11 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		return innerResponse.Body, nil
 	}
 
+	// When listing folders, the returned data is not going to be encrypted
+	if strings.HasSuffix(r.URL.Path, "/") {
+		return innerResponse.Body, nil
+	}
+
 	decryptedReader, minuslen, err := SetupReadEncryption(innerResponse.Body, info)
 
 	if err != nil {
