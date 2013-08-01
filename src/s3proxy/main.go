@@ -91,6 +91,13 @@ func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *h
 		return nil
 	}
 
+	// If this is a "copy" PUT, we should send no body at all
+	for k, _ := range r.Header {
+		if strings.HasPrefix(strings.ToLower(k), "x-amz-copy-source") {
+			return nil
+		}
+	}
+
 	encryptedInput, extralen, err := SetupWriteEncryption(r.Body, info)
 
 	if err != nil {
