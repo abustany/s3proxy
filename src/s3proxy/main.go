@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha1"
 	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"sort"
@@ -39,6 +41,9 @@ type ProxyHandler struct {
 	client          *http.Client
 	credentialCache *CredentialCache
 }
+
+const S3ProxyMetadataHeader = "X-Amz-Meta-S3proxy"
+const S3ProxyMetadataVersion = byte(0x00)
 
 func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentials, error) {
 	if c.IAMRole == "" {
@@ -86,36 +91,77 @@ func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
 	}
 }
 
-func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *http.Request, info *BucketInfo) error {
+func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *http.Request, info *BucketInfo) (*CountingHash, error) {
 	if info == nil || info.Config == nil || info.Config.EncryptionKey == "" || r.Method != "PUT" {
-		return nil
+		return nil, nil
 	}
 
 	// If this is a "copy" PUT, we should send no body at all
 	for k, _ := range r.Header {
 		if strings.HasPrefix(strings.ToLower(k), "x-amz-copy-source") {
-			return nil
+			return nil, nil
 		}
 	}
+
 
 	encryptedInput, extralen, err := SetupWriteEncryption(r.Body, info)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	innerRequest.Body = encryptedInput
+	// Since encryption transforms the data, after the inner request succeeds,
+	// we'll match the MD5s of the transformed data, and mangle the etag in the
+	// response we send to the client with the MD5 of the untransformed data if
+	// they match.
+	innerBodyHash := NewCountingHash(md5.New())
+	teereader := io.TeeReader(encryptedInput, innerBodyHash)
+	innerRequest.Body = ioutil.NopCloser(teereader)
 
 	if length := innerRequest.ContentLength; length != -1 {
 		innerRequest.ContentLength += extralen
 		innerRequest.Header.Set("Content-Length", strconv.FormatInt(innerRequest.ContentLength, 10))
 	}
 
-	return nil
+	return innerBodyHash, nil
 }
 
 func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse *http.Response, info *BucketInfo) (io.ReadCloser, error) {
-	if info == nil || info.Config == nil || info.Config.EncryptionKey == "" || r.Method != "GET" {
+	if info == nil || info.Config == nil || info.Config.EncryptionKey == "" {
+		return innerResponse.Body, nil
+	}
+
+	if r.Method != "GET" && r.Method != "HEAD" {
+		return innerResponse.Body, nil
+	}
+
+	// If we had cached encrypted metadata, decrypt it and return it to the client
+	if encryptedMetadata := innerResponse.Header.Get(S3ProxyMetadataHeader); encryptedMetadata != "" {
+		var metadataBytes []byte
+		_, err := fmt.Sscanf(encryptedMetadata, "%x", &metadataBytes)
+
+		if err != nil {
+			return nil, err
+		}
+
+		decReader, _, err := SetupReadEncryption(bytes.NewReader(metadataBytes), info)
+
+		if err != nil {
+			return nil, err
+		}
+
+		metadata, err := UnserializeObjectMetadata(decReader)
+
+		if err != nil {
+			return nil, err
+		}
+
+		delete(innerResponse.Header, S3ProxyMetadataHeader)
+		innerResponse.Header.Set("Etag", metadata.Etag)
+		innerResponse.Header.Set("Content-Length", fmt.Sprintf("%d", metadata.Size))
+	}
+
+	if r.Method == "HEAD" {
 		return innerResponse.Body, nil
 	}
 
@@ -245,6 +291,17 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	innerRequest.URL.Scheme = "http"
 	innerRequest.URL.Host = r.Host
 
+	var originalBodyHash *CountingHash
+
+	dataCheckNeeded := r.Method == "PUT" && info != nil
+
+	if dataCheckNeeded {
+		originalBodyHash = NewCountingHash(md5.New())
+
+		teereader := io.TeeReader(r.Body, originalBodyHash)
+		r.Body = ioutil.NopCloser(teereader)
+	}
+
 	err := h.SignRequest(innerRequest, info)
 
 	if err != nil {
@@ -253,7 +310,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.PreRequestEncryptionHook(r, innerRequest, info)
+	innerBodyHash, err := h.PreRequestEncryptionHook(r, innerRequest, info)
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -270,6 +327,42 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer innerResponse.Body.Close()
+
+	if dataCheckNeeded {
+		awsEtag := innerResponse.Header.Get("Etag")
+
+		bodyHash := innerBodyHash
+
+		if bodyHash == nil {
+			bodyHash = originalBodyHash
+		}
+
+		innerEtag := fmt.Sprintf("\"%.0x\"", bodyHash.Sum(nil))
+		originalEtag := fmt.Sprintf("\"%.0x\"", originalBodyHash.Sum(nil))
+
+		// if the Etags don't match, we can leave whatever value there
+		if innerEtag == awsEtag {
+			innerResponse.Header["Etag"] = []string{originalEtag}
+		}
+
+		// Let's also store the original metadata in S3, so we can use it later
+		// for HEAD and GET requests (if we uploaded any data). We encrypt the
+		// metadata too.
+		if innerBodyHash != nil {
+			metadata := &ObjectMetadata{
+				originalBodyHash.Count(),
+				originalEtag,
+			}
+
+			err = h.UpdateObjectMetadata(innerRequest.URL, metadata, r.Header, info)
+
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprintf(w, "Error while updating metadata: %s\n\nGreetings, the S3Proxy\n", err)
+				return
+			}
+		}
+	}
 
 	responseReader, err := h.PostRequestEncryptionHook(r, innerResponse, info)
 
