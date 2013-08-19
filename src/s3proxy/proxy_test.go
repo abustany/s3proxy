@@ -69,6 +69,14 @@ func (s *IAMServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	roleName := r.URL.Path[len(pathPrefix):]
 
+	// Discovery request
+	if roleName == "" {
+		role := "testrole"
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(role))
+		return
+	}
+
 	creds := s.Creds[roleName]
 
 	if creds == nil {
@@ -193,13 +201,6 @@ func TestRoles(t *testing.T) {
 			time.Now().Add(1 * time.Hour),
 			true,
 		},
-		{
-			"Request for an unknown role",
-			"unknownrole",
-			nil,
-			time.Now(),
-			false,
-		},
 	}
 
 	c := NewCredentialCache()
@@ -211,15 +212,10 @@ func TestRoles(t *testing.T) {
 			c.Expiration = d.Expiration
 		}
 
-		creds, err := c.GetRoleCredentials(d.Role)
+		creds, err := c.GetRoleCredentials()
 
 		if d.Creds != nil && err != nil {
 			t.Errorf("Unexpected error while fetching role for case '%s': %s", d.Name, err)
-			continue
-		}
-
-		if d.Creds == nil && err == nil {
-			t.Errorf("Expected error while fetching role for case '%s': %s", d.Name, err)
 			continue
 		}
 
@@ -251,18 +247,15 @@ func TestSignature(t *testing.T) {
 				"AccessKey",
 				"SecretKey",
 				"",
-				"",
 			},
 			"testbucket2": {
 				"AccessKey",
 				"SecretKey2",
 				"",
-				"",
 			},
 			"testbucket3": {
 				"",
 				"",
-				"testrole",
 				"",
 			},
 		},

@@ -14,7 +14,6 @@ type ServerConfig struct {
 type BucketConfig struct {
 	AccessKeyId     string
 	SecretAccessKey string
-	IAMRole         string
 	EncryptionKey   string
 }
 
@@ -51,14 +50,9 @@ func parseConfig(filename string) (*Config, error) {
 	}
 
 	for name, config := range c.Buckets {
-		if config.IAMRole == "" {
-			if config.AccessKeyId == "" {
-				return nil, fmt.Errorf("Missing config parameter AccessKeyId for bucket '%s'", name)
-			}
-
-			if config.SecretAccessKey == "" {
-				return nil, fmt.Errorf("Missing config parameter SecretAccessKey for bucket '%s'", name)
-			}
+		// Empty AccessKeyId means "use instance profile"
+		if config.AccessKeyId != "" && config.SecretAccessKey == "" {
+			return nil, fmt.Errorf("Missing config parameter SecretAccessKey for bucket '%s'", name)
 		}
 	}
 

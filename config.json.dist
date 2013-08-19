@@ -10,10 +10,8 @@
 			"SecretAccessKey": ""
 		},
 		"AWS bucket name using IAM roles": {
-			"IAMRole": "RoleName"
 		},
 		"AWS bucket name using IAM roles and encryption": {
-			"IAMRole": "RoleName",
 			"EncryptionKey": "0123456789ABCDEF"
 		}
 	}

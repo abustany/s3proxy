@@ -46,14 +46,14 @@ const S3ProxyMetadataHeader = "X-Amz-Meta-S3proxy"
 const S3ProxyMetadataVersion = byte(0x00)
 
 func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentials, error) {
-	if c.IAMRole == "" {
+	if c.AccessKeyId != "" {
 		return &Credentials{
 			AccessKeyId:     c.AccessKeyId,
 			SecretAccessKey: c.SecretAccessKey,
 		}, nil
 	}
 
-	return h.credentialCache.GetRoleCredentials(c.IAMRole)
+	return h.credentialCache.GetRoleCredentials()
 }
 
 func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
