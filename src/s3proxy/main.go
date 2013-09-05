@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -123,6 +124,8 @@ func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *h
 		innerRequest.Header.Set("Content-Length", strconv.FormatInt(innerRequest.ContentLength, 10))
 	}
 
+	log.Print("Encrypting the request")
+
 	return innerBodyHash, nil
 }
 
@@ -140,6 +143,8 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		log.Print("Directory listing request, skipping decryption")
 		return innerResponse.Body, nil
 	}
+
+	log.Print("Decrypting the response")
 
 	// If we had cached encrypted metadata, decrypt it and return it to the client
 	if encryptedMetadata := innerResponse.Header.Get(S3ProxyMetadataHeader); encryptedMetadata != "" {
@@ -166,6 +171,7 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		innerResponse.Header.Set("Etag", metadata.Etag)
 		innerResponse.Header.Set("Content-Length", fmt.Sprintf("%d", metadata.Size))
 
+		log.Printf("Overwrote the response headers with the cached version (Etag: %s, Content-Length: %d)", metadata.Etag, metadata.Size)
 	}
 
 	if r.Method == "HEAD" {
@@ -264,13 +270,29 @@ func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 	b64encoder.Write(signature.Sum(nil))
 	b64encoder.Close()
 
-	r.Header.Set("Authorization", fmt.Sprintf("AWS %s:%s", credentials.AccessKeyId, signature64.String()))
+	signatureHdr := fmt.Sprintf("AWS %s:%s", credentials.AccessKeyId, signature64.String())
+
+	r.Header.Set("Authorization", signatureHdr)
+
+	log.Printf("Signed request (signature: %s )", signatureHdr)
 
 	return nil
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.Printf("%s %s (Host: %s)", r.Method, r.URL, r.Host)
+
 	info := h.GetBucketInfo(r)
+
+	if info == nil {
+		log.Print("Not an S3 request")
+	} else {
+		if info.Config == nil {
+			log.Printf("No configuration for S3 bucket %s", info.Name)
+		} else {
+			log.Printf("Handling request for bucket %s", info.Name)
+		}
+	}
 
 	innerRequest := &http.Request{
 		Method:           r.Method,
@@ -393,11 +415,19 @@ func NewProxyHandler(config *Config) *ProxyHandler {
 }
 
 func main() {
+	var debugMode = flag.Bool("debug", false, "Enable debug messages")
+
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
 		usage()
 		os.Exit(1)
+	}
+
+	if *debugMode {
+		log.Print("Enabling debug messages")
+	} else {
+		log.SetOutput(ioutil.Discard)
 	}
 
 	config, err := parseConfig(flag.Args()[0])
