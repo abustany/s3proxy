@@ -135,6 +135,12 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		return innerResponse.Body, nil
 	}
 
+	// When listing folders, the returned data is not going to be encrypted
+	if strings.HasSuffix(r.URL.Path, "/") {
+		log.Print("Directory listing request, skipping decryption")
+		return innerResponse.Body, nil
+	}
+
 	// If we had cached encrypted metadata, decrypt it and return it to the client
 	if encryptedMetadata := innerResponse.Header.Get(S3ProxyMetadataHeader); encryptedMetadata != "" {
 		var metadataBytes []byte
@@ -159,14 +165,10 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		delete(innerResponse.Header, S3ProxyMetadataHeader)
 		innerResponse.Header.Set("Etag", metadata.Etag)
 		innerResponse.Header.Set("Content-Length", fmt.Sprintf("%d", metadata.Size))
+
 	}
 
 	if r.Method == "HEAD" {
-		return innerResponse.Body, nil
-	}
-
-	// When listing folders, the returned data is not going to be encrypted
-	if strings.HasSuffix(r.URL.Path, "/") {
 		return innerResponse.Body, nil
 	}
 
