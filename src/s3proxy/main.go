@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -124,7 +123,7 @@ func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *h
 		innerRequest.Header.Set("Content-Length", strconv.FormatInt(innerRequest.ContentLength, 10))
 	}
 
-	log.Print("Encrypting the request")
+	InfoLogger.Print("Encrypting the request")
 
 	return innerBodyHash, nil
 }
@@ -140,11 +139,11 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 
 	// When listing folders, the returned data is not going to be encrypted
 	if strings.HasSuffix(r.URL.Path, "/") {
-		log.Print("Directory listing request, skipping decryption")
+		InfoLogger.Print("Directory listing request, skipping decryption")
 		return innerResponse.Body, nil
 	}
 
-	log.Print("Decrypting the response")
+	InfoLogger.Print("Decrypting the response")
 
 	// If we had cached encrypted metadata, decrypt it and return it to the client
 	if encryptedMetadata := innerResponse.Header.Get(S3ProxyMetadataHeader); encryptedMetadata != "" {
@@ -171,7 +170,7 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		innerResponse.Header.Set("Etag", metadata.Etag)
 		innerResponse.Header.Set("Content-Length", fmt.Sprintf("%d", metadata.Size))
 
-		log.Printf("Overwrote the response headers with the cached version (Etag: %s, Content-Length: %d)", metadata.Etag, metadata.Size)
+		InfoLogger.Printf("Overwrote the response headers with the cached version (Etag: %s, Content-Length: %d)", metadata.Etag, metadata.Size)
 	}
 
 	if r.Method == "HEAD" {
@@ -274,23 +273,23 @@ func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 
 	r.Header.Set("Authorization", signatureHdr)
 
-	log.Printf("Signed request (signature: %s )", signatureHdr)
+	InfoLogger.Printf("Signed request (signature: %s )", signatureHdr)
 
 	return nil
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.Printf("%s %s (Host: %s)", r.Method, r.URL, r.Host)
+	InfoLogger.Printf("%s %s (Host: %s)", r.Method, r.URL, r.Host)
 
 	info := h.GetBucketInfo(r)
 
 	if info == nil {
-		log.Print("Not an S3 request")
+		InfoLogger.Print("Not an S3 request")
 	} else {
 		if info.Config == nil {
-			log.Printf("No configuration for S3 bucket %s", info.Name)
+			InfoLogger.Printf("No configuration for S3 bucket %s", info.Name)
 		} else {
-			log.Printf("Handling request for bucket %s", info.Name)
+			InfoLogger.Printf("Handling request for bucket %s", info.Name)
 		}
 	}
 
@@ -425,15 +424,14 @@ func main() {
 	}
 
 	if *debugMode {
-		log.Print("Enabling debug messages")
-	} else {
-		log.SetOutput(ioutil.Discard)
+		enableDebugMode(*debugMode)
+		InfoLogger.Print("Enabling debug messages")
 	}
 
 	config, err := parseConfig(flag.Args()[0])
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error while parsing the configuration file: %s\n", err)
+		ErrorLogger.Printf("Error while parsing the configuration file: %s\n", err)
 		os.Exit(1)
 	}
 
