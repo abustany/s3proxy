@@ -277,6 +277,12 @@ func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 	return nil
 }
 
+func failRequest(w http.ResponseWriter, format string, args ...interface{}) {
+	w.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprintf(w, format, args...)
+	ErrorLogger.Printf(format, args...)
+}
+
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	InfoLogger.Printf("%s %s (Host: %s)", r.Method, r.URL, r.Host)
 
@@ -327,24 +333,21 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err := h.SignRequest(innerRequest, info)
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
 		return
 	}
 
 	innerBodyHash, err := h.PreRequestEncryptionHook(r, innerRequest, info)
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error while setting up encryption: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while setting up encryption: %s\n\nGreetings, the S3Proxy\n", err)
 		return
 	}
 
 	innerResponse, err := h.client.Do(innerRequest)
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error while serving the request: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while serving the request: %s\n\nGreetings, the S3Proxy\n", err)
 		return
 	}
 
@@ -379,8 +382,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			err = h.UpdateObjectMetadata(innerRequest.URL, metadata, r.Header, info)
 
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprintf(w, "Error while updating metadata: %s\n\nGreetings, the S3Proxy\n", err)
+				failRequest(w, "Error while updating metadata: %s\n\nGreetings, the S3Proxy\n", err)
 				return
 			}
 		}
@@ -389,8 +391,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	responseReader, err := h.PostRequestEncryptionHook(r, innerResponse, info)
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error while setting up decryption: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while setting up decryption: %s\n\nGreetings, the S3Proxy\n", err)
 		return
 	}
 
