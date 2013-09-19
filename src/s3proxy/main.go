@@ -103,7 +103,6 @@ func (h *ProxyHandler) PreRequestEncryptionHook(r *http.Request, innerRequest *h
 		}
 	}
 
-
 	encryptedInput, extralen, err := SetupWriteEncryption(r.Body, info)
 
 	if err != nil {
