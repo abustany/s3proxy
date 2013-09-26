@@ -406,9 +406,16 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func NewProxyHandler(config *Config) *ProxyHandler {
+	transport := &http.Transport{
+		Proxy:             http.ProxyFromEnvironment,
+		DisableKeepAlives: config.Server.DisableKeepAlives,
+	}
+
 	return &ProxyHandler{
 		config,
-		&http.Client{},
+		&http.Client{
+			Transport: transport,
+		},
 		NewCredentialCache(),
 	}
 }

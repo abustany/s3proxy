@@ -13,6 +13,9 @@
 		},
 		"AWS bucket name using IAM roles and encryption": {
 			"EncryptionKey": "0123456789ABCDEF"
+		},
+		"AWS bucket name using IAM roles and no persistent TCP connections": {
+			"DisableKeepAlives": true
 		}
 	}
 }

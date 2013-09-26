@@ -7,8 +7,9 @@ import (
 )
 
 type ServerConfig struct {
-	Address string
-	Port    uint16
+	Address           string
+	Port              uint16
+	DisableKeepAlives bool
 }
 
 type BucketConfig struct {
