@@ -59,8 +59,15 @@ func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentia
 var AwsDomain = "s3.amazonaws.com"
 
 func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
+	var portIdx = strings.IndexRune(r.Host, ':')
 
-	if !strings.HasSuffix(r.Host, AwsDomain) {
+	if portIdx == -1 {
+		portIdx = len(r.Host)
+	}
+
+	host := r.Host[0:portIdx]
+
+	if !strings.HasSuffix(host, AwsDomain) {
 		return nil
 	}
 
@@ -68,8 +75,8 @@ func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
 	// Whether the URL was using bucket.s3.amazonaws.com instead of s3.amazonaws.com/bucket/
 	var bucketVirtualHost = false
 
-	if len(r.Host) > len(AwsDomain) {
-		bucketName = r.Host[0 : len(r.Host)-len(AwsDomain)-1]
+	if len(host) > len(AwsDomain) {
+		bucketName = host[0 : len(host)-len(AwsDomain)-1]
 		bucketVirtualHost = true
 	} else {
 		tokens := strings.Split(r.URL.Path, "/")
