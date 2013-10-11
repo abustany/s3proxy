@@ -40,7 +40,7 @@ type IAMServer struct {
 	l            net.Listener
 }
 
-func NewIAMServer() *IAMServer {
+func GetListeningAddress() (net.Listener, int) {
 	var l net.Listener
 
 	addr := &net.TCPAddr{
@@ -52,7 +52,6 @@ func NewIAMServer() *IAMServer {
 
 	if err != nil {
 		panic(fmt.Sprintf("Could not start TCP listener: %s", err))
-		return nil
 	}
 
 	tcpaddr, err := net.ResolveTCPAddr("tcp", l.Addr().String())
@@ -61,14 +60,20 @@ func NewIAMServer() *IAMServer {
 		panic(fmt.Sprintf("Could not parse TCP address: %s", err))
 	}
 
+	return l, tcpaddr.Port
+}
+
+func NewIAMServer() *IAMServer {
+	listener, port := GetListeningAddress()
+
 	server := &IAMServer{
-		tcpaddr.Port,
+		port,
 		0,
 		make(map[string]*Credentials),
-		l,
+		listener,
 	}
 
-	go http.Serve(l, server)
+	go http.Serve(listener, server)
 
 	// There is no way to ensure the HTTP server properly started :/
 	time.Sleep(50 * time.Millisecond)
