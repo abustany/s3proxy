@@ -16,6 +16,8 @@ type BucketConfig struct {
 	AccessKeyId     string
 	SecretAccessKey string
 	EncryptionKey   string
+	RetryCount      int
+	RetryDelay      int
 }
 
 type Config struct {
@@ -54,6 +56,14 @@ func parseConfig(filename string) (*Config, error) {
 		// Empty AccessKeyId means "use instance profile"
 		if config.AccessKeyId != "" && config.SecretAccessKey == "" {
 			return nil, fmt.Errorf("Missing config parameter SecretAccessKey for bucket '%s'", name)
+		}
+
+		if config.RetryCount < 0 {
+			config.RetryCount = 0
+		}
+
+		if config.RetryDelay < 0 {
+			config.RetryDelay = 0
 		}
 	}
 

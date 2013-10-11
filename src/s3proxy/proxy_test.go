@@ -19,16 +19,29 @@ var testConfig = &Config{
 			"AccessKey",
 			"SecretKey",
 			"",
+			0,
+			0,
 		},
 		"testbucket2": {
 			"AccessKey",
 			"SecretKey2",
 			"",
+			1,
+			0,
 		},
 		"testbucket3": {
 			"",
 			"",
 			"",
+			1,
+			0,
+		},
+		"testbucket4": {
+			"AccessKey",
+			"SecretKey2",
+			"",
+			1,
+			300,
 		},
 	},
 }
@@ -37,6 +50,13 @@ type IAMServer struct {
 	Port         int
 	RequestCount int32
 	Creds        map[string]*Credentials
+	l            net.Listener
+}
+
+// Fails one out of two requests
+type FailingServer struct {
+	Port         int
+	RequestCount int32
 	l            net.Listener
 }
 
@@ -134,6 +154,52 @@ func (s *IAMServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	jsondata, _ := json.Marshal(payload)
 
 	w.Write(jsondata)
+}
+
+func NewFailingServer() *FailingServer {
+	listener, port := GetListeningAddress()
+
+	server := &FailingServer{
+		port,
+		0,
+		listener,
+	}
+
+	go http.Serve(listener, server)
+
+	// There is no way to ensure the HTTP server properly started :/
+	time.Sleep(50 * time.Millisecond)
+
+	return server
+}
+
+func (s *FailingServer) Close() {
+	s.l.Close()
+}
+
+func (s *FailingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	atomic.AddInt32(&s.RequestCount, 1)
+
+	if strings.HasSuffix(r.URL.Path, "/failtcp") {
+		hijacker, ok := w.(http.Hijacker)
+
+		if !ok {
+			panic("ResponseWriter is not a Hijacker")
+		}
+
+		conn, _, _ := hijacker.Hijack()
+
+		conn.Close()
+	} else if strings.HasSuffix(r.URL.Path, "/failhttp") {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("HTTP error"))
+	} else if strings.HasSuffix(r.URL.Path, "/notfound") {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("HTTP not found"))
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("HTTP OK"))
+	}
 }
 
 func compareCreds(t *testing.T, creds *Credentials, expected *Credentials) bool {
@@ -370,6 +436,124 @@ func TestSignature(t *testing.T) {
 		if authTokens[1] != d.Signature {
 			t.Errorf("Invalid signature for test case '%s'\n  Expected: '%s\n  Got '%s'", d.Name, d.Signature, authTokens[1])
 			continue
+		}
+	}
+}
+
+func createProxiedRequest(url string, proxyport int) *http.Request {
+	r, err := http.NewRequest("GET", url, nil)
+
+	if err != nil {
+		panic(fmt.Sprintf("Cannot create HTTP request: %s", err))
+	}
+
+	r.Header.Add("Host", r.URL.Host)
+	r.URL.Host = fmt.Sprintf("127.0.0.1:%d", proxyport)
+
+	return r
+}
+
+func TestRetries(t *testing.T) {
+	// Get the ProxyHandler to think AWS is 127.0.0.1 so we get the retries
+	AwsDomain = "127.0.0.1"
+
+	handler := NewProxyHandler(testConfig)
+	listener, port := GetListeningAddress()
+
+	go http.Serve(listener, handler)
+	time.Sleep(50 * time.Millisecond)
+	defer listener.Close()
+
+	failingServer := NewFailingServer()
+	defer failingServer.Close()
+
+	client := &http.Client{}
+
+	serverURL := fmt.Sprintf("http://127.0.0.1:%d", failingServer.Port)
+
+	testData := []struct {
+		Name               string
+		Path               string
+		ExpectedCode       int
+		RequestCount       int32
+		MinimumRequestTime int
+	}{
+		{
+			"A good request should pass and not retry",
+			"/testbucket2/ok",
+			http.StatusOK,
+			1,
+			0,
+		},
+		{
+			"A 404 should not retry",
+			"/testbucket2/notfound",
+			http.StatusNotFound,
+			1,
+			0,
+		},
+		{
+			"A TCP error should retry if specified",
+			"/testbucket2/failtcp",
+			http.StatusInternalServerError,
+			2,
+			0,
+		},
+		{
+			"A TCP error should not retry if not specified",
+			"/testbucket/failtcp",
+			http.StatusInternalServerError,
+			1,
+			0,
+		},
+		{
+			"An HTTP error should retry if specified",
+			"/testbucket2/failhttp",
+			http.StatusInternalServerError,
+			2,
+			0,
+		},
+		{
+			"An HTTP error should not retry if not specified",
+			"/testbucket/failhttp",
+			http.StatusInternalServerError,
+			1,
+			0,
+		},
+		{
+			"Throttled buckets should not retry too fast",
+			"/testbucket4/failhttp",
+			http.StatusInternalServerError,
+			2,
+			300,
+		},
+	}
+
+	for _, d := range testData {
+		currentReqCount := failingServer.RequestCount
+
+		startTime := time.Now()
+
+		resp, err := client.Do(createProxiedRequest(serverURL+d.Path, port))
+
+		if err != nil {
+			t.Fatalf("Error while doing request for case '%s': %s", d.Name, err)
+		}
+
+		if resp.StatusCode != d.ExpectedCode {
+			t.Fatalf("Unexpected HTTP status %d when doing valid request, expected %d", resp.StatusCode, d.ExpectedCode)
+		}
+
+		reqCount := failingServer.RequestCount - currentReqCount
+
+		if reqCount != d.RequestCount {
+			t.Fatalf("Invalid request count for case '%s': %d (expected %d)", d.Name, reqCount, d.RequestCount)
+		}
+
+		reqDuration := time.Now().Sub(startTime)
+
+		if reqDuration < time.Duration(d.MinimumRequestTime)*time.Millisecond {
+			t.Fatalf("Retries went too fast, should have taken at least %d milliseconds", d.MinimumRequestTime)
 		}
 	}
 }

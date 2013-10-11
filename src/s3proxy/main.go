@@ -352,11 +352,40 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	innerResponse, err := h.client.Do(innerRequest)
+	maxRetryCount := 0
+	retryCount := 0
+	retryDelay := 0
 
-	if err != nil {
-		failRequest(w, "Error while serving the request: %s\n\nGreetings, the S3Proxy\n", err)
-		return
+	if info != nil && info.Config != nil {
+		maxRetryCount = info.Config.RetryCount
+		retryDelay = info.Config.RetryDelay
+	}
+
+	var innerResponse *http.Response
+
+	for {
+		innerResponse, err = h.client.Do(innerRequest)
+
+		if err == nil && innerResponse.StatusCode < 500 {
+			break
+		}
+
+		if retryCount < maxRetryCount {
+			InfoLogger.Printf("Request to %s failed, retrying after %d ms (try %d out of %d)", innerRequest.URL, retryDelay, 1+retryCount, 1+maxRetryCount)
+
+			retryCount++
+			time.Sleep(time.Duration(retryDelay) * time.Millisecond)
+			continue
+		}
+
+		if err != nil {
+			failRequest(w, "Error while serving the request: %s\n\nGreetings, the S3Proxy\n", err)
+			return
+		}
+
+		// We had a 5xx response, but no error from the HTTP client: just
+		// forward the response, that will get to the client
+		break
 	}
 
 	defer innerResponse.Body.Close()

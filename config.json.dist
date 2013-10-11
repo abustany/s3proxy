@@ -16,6 +16,13 @@
 		},
 		"AWS bucket name using IAM roles and no persistent TCP connections": {
 			"DisableKeepAlives": true
+		},
+		"AWS bucket name using IAM roles and retrying once if a request fails (default is 0 - no retries)": {
+			"RetryCount": 1
+		},
+		"AWS bucket name using IAM roles and retrying once after 200 ms": {
+			"RetryCount": 1,
+			"RetryDelay": 200
 		}
 	}
 }
