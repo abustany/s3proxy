@@ -56,8 +56,9 @@ func (h *ProxyHandler) GetBucketSecurityCredentials(c *BucketConfig) (*Credentia
 	return h.credentialCache.GetRoleCredentials()
 }
 
+var AwsDomain = "s3.amazonaws.com"
+
 func (h *ProxyHandler) GetBucketInfo(r *http.Request) *BucketInfo {
-	const AwsDomain = "s3.amazonaws.com"
 
 	if !strings.HasSuffix(r.Host, AwsDomain) {
 		return nil
