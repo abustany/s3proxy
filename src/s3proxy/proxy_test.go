@@ -12,6 +12,27 @@ import (
 	"time"
 )
 
+var testConfig = &Config{
+	&ServerConfig{},
+	map[string]*BucketConfig{
+		"testbucket": {
+			"AccessKey",
+			"SecretKey",
+			"",
+		},
+		"testbucket2": {
+			"AccessKey",
+			"SecretKey2",
+			"",
+		},
+		"testbucket3": {
+			"",
+			"",
+			"",
+		},
+	},
+}
+
 type IAMServer struct {
 	Port         int
 	RequestCount int32
@@ -240,28 +261,7 @@ func TestSignature(t *testing.T) {
 	server := SetupFakeIAMServer()
 	defer server.Close()
 
-	config := &Config{
-		&ServerConfig{},
-		map[string]*BucketConfig{
-			"testbucket": {
-				"AccessKey",
-				"SecretKey",
-				"",
-			},
-			"testbucket2": {
-				"AccessKey",
-				"SecretKey2",
-				"",
-			},
-			"testbucket3": {
-				"",
-				"",
-				"",
-			},
-		},
-	}
-
-	h := NewProxyHandler(config)
+	h := NewProxyHandler(testConfig)
 
 	// The signatures for those were generated with s3cmd
 	testData := []struct {
