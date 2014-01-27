@@ -115,7 +115,7 @@ func (h *ProxyHandler) UpdateObjectMetadata(objectUrl *url.URL, metadata *Object
 	metadataRequest.Header.Set(S3ProxyMetadataHeader, fmt.Sprintf("%.0x", encryptedMetadata))
 
 	for k, vs := range originalHeaders {
-		if !strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") || k == S3ProxyMetadataHeader {
+		if strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") || k == S3ProxyMetadataHeader {
 			continue
 		}
 
