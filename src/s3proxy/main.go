@@ -144,6 +144,10 @@ func (h *ProxyHandler) PostRequestEncryptionHook(r *http.Request, innerResponse 
 		return innerResponse.Body, nil
 	}
 
+	if innerResponse.StatusCode >= 300 {
+		return innerResponse.Body, nil
+	}
+
 	// When listing folders, the returned data is not going to be encrypted
 	if strings.HasSuffix(r.URL.Path, "/") {
 		InfoLogger.Print("Directory listing request, skipping decryption")
