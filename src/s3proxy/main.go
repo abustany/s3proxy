@@ -366,11 +366,13 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for {
 		innerResponse, err = h.client.Do(innerRequest)
 
-		if err == nil && innerResponse.StatusCode < 500 {
+		if err == nil && innerResponse.StatusCode < 300 {
 			break
 		}
 
-		if retryCount < maxRetryCount {
+		requestFailed := (err != nil || innerResponse.StatusCode >= http.StatusInternalServerError)
+
+		if retryCount < maxRetryCount && requestFailed {
 			InfoLogger.Printf("Request to %s failed, retrying after %d ms (try %d out of %d)", innerRequest.URL, retryDelay, 1+retryCount, 1+maxRetryCount)
 
 			retryCount++
@@ -385,6 +387,10 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// We had a 5xx response, but no error from the HTTP client: just
 		// forward the response, that will get to the client
+
+		// Do not try to update the metadata if the request failed
+		dataCheckNeeded = false
+
 		break
 	}
 
