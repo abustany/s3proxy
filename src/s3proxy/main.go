@@ -388,7 +388,11 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 
-	defer innerResponse.Body.Close()
+	defer func() {
+		if innerResponse != nil && innerResponse.Body != nil {
+			innerResponse.Body.Close()
+		}
+	}()
 
 	if dataCheckNeeded {
 		awsEtag := innerResponse.Header.Get("Etag")
