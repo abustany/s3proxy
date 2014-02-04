@@ -541,7 +541,7 @@ func TestRetries(t *testing.T) {
 		}
 
 		if resp.StatusCode != d.ExpectedCode {
-			t.Fatalf("Unexpected HTTP status %d when doing valid request, expected %d", resp.StatusCode, d.ExpectedCode)
+			t.Fatalf("Unexpected HTTP status %d for test case '%s', expected %d", resp.StatusCode, d.Name, d.ExpectedCode)
 		}
 
 		reqCount := failingServer.RequestCount - currentReqCount
