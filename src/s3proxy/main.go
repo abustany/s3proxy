@@ -290,8 +290,10 @@ func (h *ProxyHandler) SignRequest(r *http.Request, info *BucketInfo) error {
 }
 
 func failRequest(w http.ResponseWriter, format string, args ...interface{}) {
+	const ErrorFooter = "\n\nGreetings, the S3Proxy\n"
+
 	w.WriteHeader(http.StatusInternalServerError)
-	fmt.Fprintf(w, format, args...)
+	fmt.Fprintf(w, format + ErrorFooter, args...)
 	ErrorLogger.Printf(format, args...)
 }
 
@@ -345,14 +347,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err := h.SignRequest(innerRequest, info)
 
 	if err != nil {
-		failRequest(w, "Error while signing the request: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while signing the request: %s", err)
 		return
 	}
 
 	innerBodyHash, err := h.PreRequestEncryptionHook(r, innerRequest, info)
 
 	if err != nil {
-		failRequest(w, "Error while setting up encryption: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while setting up encryption: %s", err)
 		return
 	}
 
@@ -385,7 +387,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			failRequest(w, "Error while serving the request: %s\n\nGreetings, the S3Proxy\n", err)
+			failRequest(w, "Error while serving the request: %s", err)
 			return
 		}
 
@@ -433,7 +435,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			err = h.UpdateObjectMetadata(innerRequest.URL, metadata, r.Header, info)
 
 			if err != nil {
-				failRequest(w, "Error while updating metadata: %s\n\nGreetings, the S3Proxy\n", err)
+				failRequest(w, "Error while updating metadata: %s", err)
 				return
 			}
 		}
@@ -442,7 +444,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	responseReader, err := h.PostRequestEncryptionHook(r, innerResponse, info)
 
 	if err != nil {
-		failRequest(w, "Error while setting up decryption: %s\n\nGreetings, the S3Proxy\n", err)
+		failRequest(w, "Error while setting up decryption: %s", err)
 		return
 	}
 
