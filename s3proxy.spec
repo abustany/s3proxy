@@ -1,3 +1,17 @@
+# This specfile is a bit "weird" in the sense that it's meant to be run directly
+# off the git repository, not with a tarball in the RPM source dir. That means
+# you need to redefine %_sourcedir to wherever the code is when building. For
+# example, to build the RPM (and put the results in a folder named "rpm" in the
+# source directory), run:
+#
+# rpmbuild -bb --define "%_topdir %(pwd)/rpm" --define "%_sourcedir %(pwd)" s3proxy.spec
+#
+# To build a source RPM, simply replace -bb by -bs in the command above.
+#
+# Note that to get this specfile working properly, you'll need git installed on
+# the host where the specfile is parsed (as it's required by the macros used to
+# generate the release number).
+
 %define latestcommitstamp %(git rev-list -n1 --format=format:%ct HEAD | tail -n1)
 %define releasestr %(date -u +%Y%m%dT%H%M%SZ --date=@%{latestcommitstamp}).git%(git rev-list --abbrev-commit -n1 HEAD)
 
