@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/abustany/s3proxy.svg?branch=master)](https://travis-ci.org/abustany/s3proxy)
+
 Simple authenticating proxy for AWS S3
 ======================================
 
